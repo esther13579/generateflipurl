@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>翻轉編號轉網址批次生產工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 增加一個 class 來切換顯示/隱藏 */
+        .url-display {
+            display: inline-block;
+            padding: 6px 2px; /* 模擬 input 內距 */
+            width: 100%;
+            cursor: text;
+        }
+        .url-edit-input {
+            display: none; /* 預設隱藏 input */
+            width: 100%;
+            padding: 0.375rem 0.5rem; /* tailwind's px-2 py-1.5 */
+            font-size: 0.875rem; /* tailwind's text-sm */
+            border: 1px solid #D1D5DB; /* tailwind's border-gray-300 */
+            border-radius: 0.375rem; /* tailwind's rounded-md */
+        }
+
+        /* 當 .editing class 存在於 <tr> 時 */
+        tr.editing .url-display {
+            display: none; /* 隱藏文字 */
+        }
+        tr.editing .url-edit-input {
+            display: inline-block; /* 顯示 input */
+        }
+
+        /* 調整按鈕大小與 Icon 對齊 */
+        .action-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.375rem 0.75rem; /* py-1.5 px-3 */
+            font-size: 0.75rem; /* text-xs */
+            font-weight: 600; /* font-semibold */
+            line-height: 1;
+            margin-bottom: 0.25rem; /* mb-1 */
+            border-radius: 0.375rem; /* rounded-md */
+            transition: background-color 0.15s ease-in-out;
+            color: white; /* 所有按鈕文字都是白色 */
+            white-space: nowrap; /* 防止文字換行 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans text-gray-900">
+
+    <div class="container mx-auto max-w-7xl p-4 sm:p-6 lg:p-8"> <!-- 稍微加寬 max-w-6xl -> max-w-7xl */ -->
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <div class="p-6 sm:p-8">
+                <h1 class="text-2xl sm:text-3xl font-bold text-center text-gray-800 mb-6">翻轉編號轉網址批次生產工具</h1>
+                
+                <!-- 類別選項 -->
+                <fieldset class="mb-5">
+                    <legend class="text-lg font-semibold text-gray-700 mb-3">1. 選擇類別</legend>
+                    <div id="category-options" class="flex flex-row flex-wrap gap-x-4 gap-y-2">
+                        <!-- 選項會由 JS 動態填入 -->
+                    </div>
+                </fieldset>
+
+                <!-- 輸入框 -->
+                <div class="mb-5">
+                    <label for="id-input" class="block text-lg font-semibold text-gray-700 mb-3">2. 輸入編號 (每行一個)</label>
+                    <textarea id="id-input" class="w-full h-40 p-3 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-150" placeholder="例如：&#10;010329&#10;8782&#10;137"></textarea>
+                </div>
+                
+                <!-- 按鈕群組 -->
+                <div class="flex flex-wrap gap-3 items-center">
+                    <button id="generate-btn" class="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-200">
+                        產生並加入
+                    </button>
+                    <button id="clear-btn" class="px-5 py-2.5 bg-gray-600 text-white font-semibold rounded-md shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition duration-200">
+                        清除表格
+                    </button>
+                    
+                    <!-- 自訂檔名 -->
+                    <div id="export-controls" class="flex items-center gap-2 ml-auto" style="display: none;">
+                        <label for="csv-filename" class="text-sm font-medium text-gray-700 whitespace-nowrap">匯出檔名:</label>
+                        <input type="text" id="csv-filename" value="generated_links" class="px-2 py-1.5 w-36 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                        <span class="text-sm text-gray-600">.csv</span>
+                        <button id="export-btn" class="px-5 py-2.5 bg-green-600 text-white font-semibold rounded-md shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-200">
+                            匯出 CSV
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 結果表格 -->
+            <div id="results-container" class="px-6 sm:px-8 pb-8">
+                <!-- 表格會動態插入這裡 -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        // 類別定義 (value 必須獨一無二)
+        const categoryOptions = [
+            { value: "unlimited", label: "不限", baseUrl: "https://flipedu.parenting.com.tw" },
+            { value: "article", label: "文章", baseUrl: "https://flipedu.parenting.com.tw/article/" },
+            { value: "resource", label: "教學資源", baseUrl: "https://flipedu.parenting.com.tw/teacher_resource/" },
+            { value: "event", label: "活動", baseUrl: "https://flipedu.parenting.com.tw/event/" },
+            { value: "album", label: "發燒網專輯", baseUrl: "https://edu.parenting.com.tw" }, // 注意：這個網址不同 (沒有 /)
+            { value: "college_course", label: "學院課程", baseUrl: "https://flipedu.parenting.com.tw/college/course/" },
+            { value: "college_product", label: "學院商品", baseUrl: "https://flipedu.parenting.com.tw/college/product/" },
+            { value: "other", label: "其他", baseUrl: "" }
+        ];
+
+        // 產生類別下拉選單的 HTML (for table)
+        function getCategorySelectHTML(selectedValue = "article") {
+            return categoryOptions.map(opt => 
+                `<option value="${opt.value}" ${opt.value === selectedValue ? 'selected' : ''}>${opt.label}</option>`
+            ).join('');
+        }
+        
+        // 動態產生類別選項 (Radio buttons)
+        const categoryContainer = document.getElementById('category-options');
+        let radioHTML = '';
+        categoryOptions.forEach((opt, index) => {
+            radioHTML += `
+                <div class="flex items-center">
+                    <input id="cat-${opt.value}" name="category" type="radio" value="${opt.value}" 
+                           class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                           ${index === 0 ? 'checked' : ''}>
+                    <label for="cat-${opt.value}" class="ml-2 block text-sm font-medium text-gray-700">${opt.label}</label>
+                </div>
+            `;
+        });
+        categoryContainer.innerHTML = radioHTML;
+
+        // DOM 元素
+        const idInput = document.getElementById('id-input');
+        const generateBtn = document.getElementById('generate-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const resultsContainer = document.getElementById('results-container');
+        
+        // 1. 產生網址表格
+        function generateLinks() {
+            const selectedCategoryValue = document.querySelector('input[name="category"]:checked').value;
+            const categoryConfig = categoryOptions.find(opt => opt.value === selectedCategoryValue);
+
+            const ids = idInput.value.split('\n')
+                                     .map(id => id.trim())
+                                     .filter(id => id.length > 0);
+            
+            if (ids.length === 0) return;
+
+            let newRowsHTML = '';
+            
+            // 獲取當前表格行數，以計算新序號
+            let tableBody = document.getElementById('results-tbody');
+            let startingIndex = tableBody ? tableBody.querySelectorAll('tr').length : 0;
+
+            ids.forEach((id, index) => {
+                let fullURL = "";
+                let processedId = id;
+                let finalCategoryValue = categoryConfig.value; // 預設為選中的類別
+                const serialNumber = startingIndex + index + 1; // 計算序號
+                
+                // *** "不限" 類別的特殊邏輯 ***
+                if (categoryConfig.value === "unlimited") {
+                    // 1. 判斷 URL 邏輯
+                    if (id.startsWith('/flipedu')) {
+                        // 規則：/flipedu 開頭，套用「發燒網專輯」邏輯 (不加 /)
+                        fullURL = categoryOptions.find(opt => opt.value === 'album').baseUrl + processedId;
+                        finalCategoryValue = "album"; // 自動分類
+                    } else {
+                        // 規則：其他，套用「不限」邏輯 (不加 /)
+                        fullURL = categoryConfig.baseUrl + processedId;
+
+                        // 2. 自動分類 (僅在非 /flipedu 時)
+                        if (id.includes('article/')) finalCategoryValue = "article";
+                        else if (id.includes('teacher_resource/')) finalCategoryValue = "resource";
+                        else if (id.includes('event/')) finalCategoryValue = "event";
+                        else if (id.includes('college/course/')) finalCategoryValue = "college_course";
+                        else if (id.includes('college/product/')) finalCategoryValue = "college_product";
+                        // 否則 finalCategoryValue 保持 "unlimited"
+                    }
+                } else {
+                    // --- 其他類別的標準邏輯 ---
+                    switch(categoryConfig.value) {
+                        case "article":
+                            processedId = id.padStart(6, '0');
+                            fullURL = categoryConfig.baseUrl + processedId;
+                            break;
+                        case "album": // *** 這是修復的關鍵 ***
+                            // "發燒網專輯" 的 baseUrl 沒有 /，所以要手動加上
+                            fullURL = categoryConfig.baseUrl + "/" + processedId; 
+                            break;
+                        case "other":
+                            fullURL = id;
+                            break;
+                        default:
+                            // 其他所有類別的 baseUrl 都有 /
+                            fullURL = categoryConfig.baseUrl + processedId;
+                            break;
+                    }
+                    // finalCategoryValue 保持為用戶選擇的
+                }
+                
+                const categorySelect = getCategorySelectHTML(finalCategoryValue); // 使用自動偵測的類別
+
+                newRowsHTML += `
+                     <tr class="hover:bg-gray-50 transition duration-150">
+                         <td class="px-2 py-3 text-sm text-gray-700 align-top text-center serial-cell"> <!-- 調整 px-4 -> px-2 -->
+                            ${serialNumber}
+                         </td>
+                         <td class="px-4 py-3 text-sm text-gray-900 align-top" style="word-break: break-all;">
+                            <span class="url-display">${fullURL.replace(/"/g, '&quot;')}</span>
+                            <input type="text" 
+                                   class="url-edit-input" 
+                                   value="${fullURL.replace(/"/g, '&quot;')}">
+                         </td>
+                        <td class="px-4 py-3 text-sm text-gray-700 align-top">
+                            <select class="category-select w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                                ${categorySelect}
+                            </select>
+                        </td>
+                         <td class="px-4 py-3 align-top">
+                             <input type="text" 
+                                    class="notes-input w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500" 
+                                    placeholder="新增備註...">
+                         </td>
+                         <!-- 按鈕風格與順序 -->
+                         <td class="px-4 py-3 text-center align-top whitespace-nowrap">
+                             <button class="action-button edit-btn bg-yellow-500 hover:bg-yellow-600 shadow-sm" title="編輯">編輯</button>
+                             <button class="action-button delete-btn bg-red-400 hover:bg-red-500 shadow-sm" title="刪除">刪除</button>
+                             <button class="action-button copy-btn bg-blue-600 hover:bg-blue-700 shadow-sm" title="複製">複製</button>
+                             <button class="action-button open-btn bg-gray-600 hover:bg-gray-700 shadow-sm" title="開啟">開啟</button>
+                         </td>
+                     </tr>
+                `;
+            });
+
+            // 檢查表格是否已存在
+            if (!tableBody) {
+                // 建立新表格
+                // *** 調整表格寬度 (使用 24 分欄系統) ***
+                let tableHTML = `
+                    <div class="overflow-x-auto shadow-md rounded-lg mt-6 border border-gray-200">
+                        <table class="min-w-full divide-y divide-gray-200" style="table-layout: fixed;"> <!-- 固定表格佈局 -->
+                            <colgroup>
+                                <col style="width: 4.166667%;"> <!-- 1/24 (序號) -->
+                                <col style="width: 41.666667%;"> <!-- 10/24 (網址) -->
+                                <col style="width: 16.666667%;"> <!-- 4/24 (類別) -->
+                                <col style="width: 16.666667%;"> <!-- 4/24 (備註) -->
+                                <col style="width: 20.833333%;"> <!-- 5/24 (操作) -->
+                            </colgroup>
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th scope="col" class="px-2 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        序號
+                                    </th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        產生的網址
+                                    </th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        類別
+                                    </th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        備註
+                                    </th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        操作
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-tbody" class="bg-white divide-y divide-gray-200">
+                                ${newRowsHTML}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                resultsContainer.innerHTML = tableHTML;
+            } else {
+                // 附加新行
+                tableBody.insertAdjacentHTML('beforeend', newRowsHTML);
+            }
+            
+            document.getElementById('export-controls').style.display = 'flex';
+            idInput.value = ''; // 清空輸入框，方便下次輸入
+        }
+        
+        // 2. 重新編號表格 (刪除時觸發)
+        function renumberTable() {
+            const rows = document.querySelectorAll('#results-tbody tr');
+            rows.forEach((row, index) => {
+                const serialCell = row.querySelector('.serial-cell');
+                if (serialCell) {
+                    serialCell.textContent = index + 1;
+                }
+            });
+        }
+
+        // 3. (FIX) 複製功能 - 使用 document.execCommand
+        function copyToClipboard(text, callback) {
+            // 建立一個暫時的 textarea 元素
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            
+            // 隱藏元素，使其不影響畫面
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '0';
+            
+            document.body.appendChild(textarea);
+            
+            // 選擇並複製
+            textarea.focus();
+            textarea.select();
+            
+            let success = false;
+            try {
+                success = document.execCommand('copy');
+                if (callback) callback(null, success);
+            } catch (err) {
+                console.error('複製失敗: ', err);
+                if (callback) callback(err, false);
+            }
+            
+            // 移除暫時元素
+            document.body.removeChild(textarea);
+        }
+
+        // 4. 處理表格內按鈕事件
+        function handleTableActions(event) {
+            const target = event.target.closest('.action-button'); // 確保點擊到按鈕
+            if (!target) return; // 如果沒點到按鈕，就結束
+
+            const tableRow = target.closest('tr');
+            if (!tableRow) return;
+            
+            const urlDisplay = tableRow.querySelector('.url-display');
+            const urlInput = tableRow.querySelector('.url-edit-input');
+
+            // 編輯/儲存
+            if (target.classList.contains('edit-btn')) {
+                if (tableRow.classList.contains('editing')) {
+                    // --- 儲存 ---
+                    urlDisplay.textContent = urlInput.value;
+                    tableRow.classList.remove('editing');
+                    target.textContent = '編輯'; // 編輯 text
+                    target.title = '編輯';
+                    // 恢復編輯按鈕樣式
+                    target.classList.remove('bg-green-600', 'hover:bg-green-700');
+                    target.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+                } else {
+                    // --- 編輯 ---
+                    urlInput.value = urlDisplay.textContent;
+                    tableRow.classList.add('editing');
+                    target.textContent = '儲存'; // 儲存 text
+                    target.title = '儲存';
+                    // 變更為儲存按鈕樣式
+                    target.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+                    target.classList.add('bg-green-600', 'hover:bg-green-700');
+                    urlInput.focus();
+                }
+                return;
+            }
+            
+            // 刪除
+            if (target.classList.contains('delete-btn')) {
+                tableRow.remove();
+                renumberTable(); // *** 刪除後重新編號 ***
+                
+                // 檢查表格是否為空
+                const tableBody = document.getElementById('results-tbody');
+                if (tableBody && tableBody.querySelectorAll('tr').length === 0) {
+                    // 如果沒有任何資料行，隱藏匯出並清空容器
+                    document.getElementById('export-controls').style.display = 'none';
+                    resultsContainer.innerHTML = ''; 
+                }
+                return;
+            }
+
+            // (讀取網址) - 確保讀取的是最新網址
+            let currentUrl = (tableRow.classList.contains('editing') ? urlInput.value : urlDisplay.textContent).trim();
+            if (!currentUrl) {
+                console.warn('網址為空');
+                return;
+            }
+
+            // 複製 (使用 execCommand)
+            if (target.classList.contains('copy-btn')) {
+                copyToClipboard(currentUrl, (err, success) => {
+                    if (err || !success) {
+                        console.error('複製失敗');
+                        return;
+                    }
+                    
+                    target.textContent = '已複製!'; // 已複製 text
+                    target.title = '已複製!';
+                    // 變更為已複製樣式
+                    target.classList.add('bg-green-600', 'hover:bg-green-700');
+                    target.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                    setTimeout(() => {
+                        target.textContent = '複製'; // 複製 text
+                        target.title = '複製';
+                        // 恢復複製按鈕樣式
+                        target.classList.remove('bg-green-600', 'hover:bg-green-700');
+                        target.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                    }, 1500);
+                });
+            }
+
+            // 開啟
+            if (target.classList.contains('open-btn')) {
+                window.open(currentUrl, '_blank');
+            }
+        }
+
+        // 5. 匯出 CSV
+        function exportCSV() {
+            const rows = document.querySelectorAll('#results-tbody tr');
+            if (rows.length === 0) return;
+
+            let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // \uFEFF for Excel UTF-8
+            csvContent += "序號,網址,類別,備註\n"; // CSV 標頭
+
+            rows.forEach(row => {
+                // 獲取序號
+                const serial = row.querySelector('.serial-cell').textContent.trim();
+                
+                // 確保抓到的是編輯後或原始的網址
+                const url = (row.classList.contains('editing') ? 
+                             row.querySelector('.url-edit-input').value : 
+                             row.querySelector('.url-display').textContent).trim();
+                
+                const categorySelect = row.querySelector('.category-select');
+                const categoryLabel = categorySelect.options[categorySelect.selectedIndex].text; // 抓取選中的文字
+                const notes = row.querySelector('.notes-input').value;
+                 
+                 // 處理 CSV 特殊字元 (引號和逗號)
+                 const escapeCSV = (field) => `"${String(field).replace(/"/g, '""')}"`;
+                
+                csvContent += `${escapeCSV(serial)},${escapeCSV(url)},${escapeCSV(categoryLabel)},${escapeCSV(notes)}\n`;
+            });
+
+            // 觸發下載
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            
+            // 使用自訂檔名
+            const filenameInput = document.getElementById('csv-filename');
+            let filename = filenameInput.value.trim() || 'generated_links';
+            if (!filename.toLowerCase().endsWith('.csv')) {
+                filename += '.csv';
+            }
+            link.setAttribute("download", filename);
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 6. 清除所有內容
+        function clearAll() {
+            // 清除輸入框
+            idInput.value = '';
+            // 清除表格
+            resultsContainer.innerHTML = '';
+            // 隱藏匯出按鈕
+            document.getElementById('export-controls').style.display = 'none';
+        }
+
+        // 綁定事件監聽器
+        generateBtn.addEventListener('click', generateLinks);
+        clearBtn.addEventListener('click', clearAll);
+        document.getElementById('export-btn').addEventListener('click', exportCSV);
+        resultsContainer.addEventListener('click', handleTableActions); // 事件委派
+        
+    });
+    </script>
+
+</body>
+</html>
+
